@@ -1,0 +1,39 @@
+{
+  "request_id": "init-42-20261025-001",
+  "user": {
+    "user_id": 42,
+    "nickname": "테스트사용자"
+  },
+  "transactions": [
+    {
+      "transaction_id": 501,
+      "linked_account_id": 11,
+      "occurred_at": "2026-07-25T09:30:00+09:00",
+      "amount": 600000,
+      "direction": "OUT",
+      "merchant_or_payee": "김민수",
+      "description": "이체"
+    },
+    {
+      "transaction_id": 502,
+      "linked_account_id": 11,
+      "occurred_at": "2026-08-25T09:30:00+09:00",
+      "amount": 600000,
+      "direction": "OUT",
+      "merchant_or_payee": "김민수",
+      "description": "이체"
+    },
+    {
+      "transaction_id": 503,
+      "linked_account_id": 11,
+      "occurred_at": "2026-09-25T09:30:00+09:00",
+      "amount": 600000,
+      "direction": "OUT",
+      "merchant_or_payee": "김민수",
+      "description": "이체"
+    }
+  ],
+  "accounts": [{"linked_account_id": 11, "institution_code": "0004"}],
+  "categories": [],
+  "existing_blocks": []
+}

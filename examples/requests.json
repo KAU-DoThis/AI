@@ -1,0 +1,42 @@
+{
+  "initial_blocks": {
+    "event_id": "onboarding-101-20261024-1",
+    "user_id": 101,
+    "event_type": "initial_blocks",
+    "payload": {
+      "analysis_period": {"from": "2026-07-01", "to": "2026-09-30"},
+      "transactions": [
+        {
+          "transaction_id": 9001,
+          "occurred_at": "2026-09-25T10:00:00+09:00",
+          "direction": "out",
+          "amount": 600000,
+          "merchant_or_payee": "example-payee"
+        }
+      ],
+      "summary": {"available_balance": 2500000, "monthly_income": 3000000}
+    }
+  },
+  "chat_message": {
+    "event_id": "chat-101-m-1",
+    "user_id": 101,
+    "event_type": "chat_message",
+    "payload": {
+      "message_id": "m-1",
+      "text": "식비 블록 예산을 30만 원으로 수정해줘."
+    }
+  },
+  "monthly_report": {
+    "event_id": "monthly-report-101-2026-09",
+    "user_id": 101,
+    "event_type": "monthly_report",
+    "payload": {
+      "month": "2026-09",
+      "metrics": {
+        "total_spending": 850000,
+        "category_spending": {"식비": 300000, "교통": 100000},
+        "financial_score": 72
+      }
+    }
+  }
+}
