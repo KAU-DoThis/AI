@@ -1,11 +1,10 @@
 """Fintris AI server: application setup and service lifecycle."""
 
 import asyncio
-import hmac
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -19,25 +18,14 @@ from app.api.v1.initial_blocks import router as initial_blocks_router
 from app.core.chat_factory import build_chat_manager
 from app.core.classify_config import get_settings as get_classify_settings
 from app.core.llm import LLMSettings, create_llm
+from app.core.internal_auth import require_internal_token
 from app.modules.llm import ChatOptions
 from app.services.classify import build_classifier
 from app.services.coach_room import CoachRoomService
 
 
-def authenticate_internal(
-    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
-) -> None:
-    """Verify the same configured internal token used by the backend.
-
-    This local implementation avoids relying on a non-existent export from
-    app.api.dependencies. Prefer moving this to the project's shared auth
-    module when that existing dependency is identified.
-    """
-    expected = os.getenv("FINTRIS_INTERNAL_TOKEN")
-    if not expected:
-        raise HTTPException(status_code=503, detail="Internal authentication is not configured")
-    if x_internal_token is None or not hmac.compare_digest(x_internal_token, expected):
-        raise HTTPException(status_code=401, detail="Invalid internal token")
+# Backwards-compatible import name; authentication logic has a single owner.
+authenticate_internal = require_internal_token
 
 
 @asynccontextmanager

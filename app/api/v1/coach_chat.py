@@ -3,6 +3,8 @@ from typing import Any, Callable
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.agent.chat_manager import AgentManager, ChatError
 from app.schemas.coach_chat import CoachChatRequest, CoachChatResponse
+from app.modules.agent.contracts import AgentError
+from app.services.coach_chat import build_chat_response
 
 ERRORS = {
     "REQUEST_ID_CONFLICT": (409, "requestId가 다른 요청에 이미 사용되었습니다."),
@@ -33,8 +35,9 @@ def build_coach_chat_router(authenticate_internal: Callable[..., Any]) -> APIRou
     async def chat(request: CoachChatRequest,
                    manager: AgentManager = Depends(manager_from_request)) -> CoachChatResponse:
         try:
-            return await manager.chat(request)
-        except ChatError as exc:
+            execution = await manager.chat(request)
+            return build_chat_response(execution)
+        except (ChatError, AgentError) as exc:
             status, text = ERRORS.get(exc.code, ERRORS["INTERNAL_ERROR"])
             code = exc.code if exc.code in ERRORS else "INTERNAL_ERROR"
             raise HTTPException(status, detail={"code": "COACH_CHAT_" + code, "message": text}) from None

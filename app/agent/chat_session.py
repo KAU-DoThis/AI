@@ -7,14 +7,25 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
-from app.modules.agent.contracts import Agent
-from app.schemas.coach_chat import CoachChatRequest, CoachChatResponse
+from app.modules.agent.contracts import Agent, AgentResult
+from app.modules.agent.tools import ToolExecution
+from app.schemas.coach_chat import CoachChatRequest
+
+@dataclass(frozen=True)
+class ChatExecution:
+    request_id: str
+    user_id: int
+    session_id: str
+    agent_id: str
+    result: AgentResult
+    tool_executions: tuple[ToolExecution, ...] = ()
 
 @dataclass
 class ChatJob:
     request: CoachChatRequest
     fingerprint: str
-    future: asyncio.Future[CoachChatResponse]
+    future: asyncio.Future[ChatExecution]
+    execution_id: str
 
 @dataclass
 class UserSession:
