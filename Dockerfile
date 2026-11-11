@@ -6,7 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir "fastapi>=0.115,<1" "uvicorn>=0.34,<1" "pydantic>=2.10,<3" "rapidfuzz>=3.10,<4" "boto3>=1.34,<2"
+# 라이브러리는 pyproject.toml [project].dependencies 한 곳에서만 관리한다 (여기에 따로 적지 않는다)
+RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 COPY app ./app
 
