@@ -1,5 +1,7 @@
 # Fintris Spring ↔ AI 서버 연동 계약 초안
 
+> 이 문서는 기존 이벤트 수신·큐 API의 초기 설계 기록입니다. 새로 구현된 방 입장 문구 생성 API는 [COACH_ROOM_API.md](COACH_ROOM_API.md), 모델 연결은 [LLM_SETUP.md](LLM_SETUP.md)를 참고하세요. 아래의 “LLM 호출 없음” 설명은 기존 수신 API 범위를 가리킵니다.
+
 작성 기준: 2026-10-24, 백엔드 공개 `dev` 브랜치의 README / 기능명세서 / User.java / BlockController.java. **아직 백엔드 팀과 확정한 계약이 아니며, Spring 소스에 이 엔드포인트가 구현되어 있다는 뜻이 아닙니다.**
 
 ## 데이터 흐름
