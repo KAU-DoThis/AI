@@ -6,8 +6,12 @@ from hmac import compare_digest
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 
-from app.manager import AgentManager
+from app.agent.manager import AgentManager
+from app.api.v1 import classify as classify_api
+from app.api.v1 import initial_blocks
+from app.core.classify_config import get_settings as get_classify_settings
 from app.models import AgentEvent, AgentStatus, EventReceipt
+from app.services.classify import build_classifier
 
 
 @asynccontextmanager
@@ -15,6 +19,7 @@ async def lifespan(app: FastAPI):
     if not os.getenv("FINTRIS_INTERNAL_TOKEN"):
         raise RuntimeError("Set FINTRIS_INTERNAL_TOKEN for Spring -> AI authentication")
     app.state.agent_manager = AgentManager()
+    app.state.classifier = build_classifier(get_classify_settings())
     yield
 
 
@@ -23,6 +28,8 @@ app = FastAPI(
     version="0.1.01",
     lifespan=lifespan,
 )
+app.include_router(initial_blocks.router)
+app.include_router(classify_api.router)
 
 
 def authenticate_internal(
