@@ -1,0 +1,35 @@
+{
+  "userId": 42,
+  "sessionId": "c805ca80-d766-4e64-8b8d-1bca4f77a9a6",
+  "blocks": [
+    {
+      "blockId": 1,
+      "type": "SPENDING",
+      "name": "생활비",
+      "balance": 120000,
+      "capacity": 500000,
+      "status": "CAUTION",
+      "statusLabel": "주의"
+    },
+    {
+      "blockId": 2,
+      "type": "GOAL",
+      "name": "여행",
+      "balance": 300000,
+      "capacity": 500000,
+      "targetAmount": 500000,
+      "status": "SAFE",
+      "statusLabel": "안전"
+    }
+  ],
+  "waitingFunds": [
+    {
+      "waitingFundId": 12,
+      "source": "SAVING",
+      "label": "절약분",
+      "description": "10월 절약 확정",
+      "amount": 87000,
+      "originalAmount": 87000
+    }
+  ]
+}
