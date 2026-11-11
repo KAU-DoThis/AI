@@ -1,4 +1,4 @@
-"""Offline tests of the add-on, not the inaccessible repository's full test suite."""
+"""Runtime regressions updated for text/transfer. No real backend/LLM calls."""
 from __future__ import annotations
 import asyncio
 import json
@@ -28,7 +28,7 @@ from app.tools.fintris_chat import build_fintris_chat_tools
 
 def request(n=1, user=1, session="room-1", message=None, **kwargs):
     return CoachChatRequest(userId=user, sessionId=session, requestId=f"request-{n}",
-                            message=message or f"message-{n}", **kwargs)
+                            text=message or f"message-{n}", **kwargs)
 
 
 class FakeAgent:
@@ -130,7 +130,7 @@ async def test_same_user_fifo_and_other_users_concurrent():
         assert [len(a.requests) for a in agents] == [1, 1]
         gate.set()
         result = await asyncio.gather(*tasks)
-        assert [r.message for r in result] == ["reply:message-1", "reply:message-2", "reply:message-3"]
+        assert [r.result.message for r in result] == ["reply:message-1", "reply:message-2", "reply:message-3"]
         assert agents[0].max_active == 1
         assert agents[1].requests[0].history == []
         assert result[0].agent_id != result[2].agent_id
@@ -154,8 +154,8 @@ async def test_concurrent_retry_is_one_execution():
         assert a == b and len(agent.requests) == 1
         again = await manager.chat(request())
         assert again == a and len(agent.requests) == 1
-        again.message = "client mutation"
-        assert (await manager.chat(request())).message != "client mutation"
+        again.result.messages[0]["content"] = "client mutation"
+        assert (await manager.chat(request())).result.messages[0]["content"] != "client mutation"
     finally:
         gate.set()
         await manager.aclose()
@@ -186,7 +186,7 @@ async def test_caller_cancellation_does_not_cancel_accepted_work():
             await call
         retry = asyncio.create_task(manager.chat(request()))
         gate.set()
-        assert (await retry).message == "reply:message-1"
+        assert (await retry).result.message == "reply:message-1"
         assert len(agent.requests) == 1
     finally:
         gate.set()
@@ -450,18 +450,18 @@ async def test_tool_failure_hides_raw_exception():
 
 
 @pytest.mark.parametrize("update", [
-    {"userId": True}, {"userId": 0}, {"message": "  "}, {"requestId": ""},
-    {"sessionId": ""}, {"token": "not-accepted"}, {"blocks": [{"id": 1, "name": "x", "balance": 1.2}]},
+    {"userId": True}, {"userId": 0}, {"text": "  "}, {"requestId": ""},
+    {"sessionId": ""}, {"token": "not-accepted"}, {"blocks": [{"blockId": 1, "name": "x", "balance": 1.2}]},
 ])
 def test_schema_rejects_invalid_requests(update):
-    body = {"userId": 1, "sessionId": "s", "requestId": "r", "message": "hello"}
+    body = {"userId": 1, "sessionId": "s", "requestId": "r", "text": "hello"}
     body.update(update)
     with pytest.raises(ValidationError):
         CoachChatRequest.model_validate(body)
 
 
-def test_snapshot_ignores_unknown_sensitive_fields_and_accepts_id_alias():
-    req = request(blocks=[{"id": 5, "name": "living", "balance": 42, "bankPassword": "SECRET"}])
+def test_snapshot_ignores_unknown_sensitive_fields_and_accepts_backend_block_id():
+    req = request(blocks=[{"blockId": 5, "name": "living", "balance": 42, "bankPassword": "SECRET"}])
     assert req.snapshot()["blocks"][0] == {"blockId": 5, "name": "living", "balance": 42}
 
 
@@ -547,8 +547,8 @@ async def test_http_auth_and_success_contract():
         assert (await client.post("/internal/ai/coach/chat", json=body)).status_code == 401
         response = await client.post("/internal/ai/coach/chat", json=body, headers={"X-Internal-Token": "test-internal-token"})
         assert response.status_code == 200
-        assert set(response.json()) == {"requestId", "userId", "sessionId", "agentId", "message", "toolsUsed"}
-        assert response.json()["message"] == "reply:message-1"
+        assert set(response.json()) == {"text", "transfer"}
+        assert response.json()["text"] == "reply:message-1"
 
 
 @pytest.mark.asyncio
@@ -557,11 +557,11 @@ async def test_http_conflict_validation_and_not_initialized():
     async with client_for(AgentManager(FakeAgent)) as client:
         body = request().model_dump(by_alias=True, mode="json")
         assert (await client.post("/internal/ai/coach/chat", json=body, headers=headers)).status_code == 200
-        body["message"] = "changed"
+        body["text"] = "changed"
         conflict = await client.post("/internal/ai/coach/chat", json=body, headers=headers)
         assert conflict.status_code == 409
         assert conflict.json()["detail"]["code"] == "COACH_CHAT_REQUEST_ID_CONFLICT"
-        body["message"] = ""
+        body["text"] = ""
         assert (await client.post("/internal/ai/coach/chat", json=body, headers=headers)).status_code == 422
     async with client_for(None) as client:
         assert (await client.post("/internal/ai/coach/chat", json=request().model_dump(by_alias=True), headers=headers)).status_code == 503
@@ -591,7 +591,7 @@ async def test_factory_uses_injected_llm_and_latest_snapshot_only():
             return SimpleNamespace(content="자료를 확인했어요.", tool_calls=[], finish_reason="stop")
     manager = build_chat_manager(Provider(), "fake-model", SimpleNamespace(extra={}))
     try:
-        await manager.chat(request(blocks=[{"id": 1, "name": "x", "balance": 10}]))
+        await manager.chat(request(blocks=[{"blockId": 1, "name": "x", "balance": 10}]))
         await manager.chat(request(2))
         assert seen[0]["available"] is True
         assert seen[1]["available"] is False
@@ -601,25 +601,7 @@ async def test_factory_uses_injected_llm_and_latest_snapshot_only():
 
 @pytest.mark.asyncio
 async def test_legacy_event_contract_same_logical_agent(monkeypatch):
-    # Reference-contract fixtures reproduced from the previously shared models.py.
-    # Deliberately NOT described as a test against current GitHub source.
-    class EventReceipt(BaseModel):
-        event_id: str
-        user_id: int
-        agent_id: str
-        agent_created: bool
-        duplicate: bool
-        pending_events: int
-        status: str = "queued"
-    class AgentStatus(BaseModel):
-        user_id: int
-        agent_id: str
-        created_at: str
-        pending_events: int
-        status: str = "idle_stub"
-    module = ModuleType("app.models")
-    module.EventReceipt, module.AgentStatus = EventReceipt, AgentStatus
-    monkeypatch.setitem(__import__("sys").modules, "app.models", module)
+    # Exercise the event DTOs included in the uploaded app.
     manager = AgentManager(FakeAgent)
     try:
         event = SimpleNamespace(user_id=1, event_id="event-1")

@@ -1,0 +1,30 @@
+{
+  "userId": 123,
+  "sessionId": "room-123",
+  "text": "생활비에서 여행으로 5만 원 옮겨줘.",
+  "blocks": [
+    {
+      "blockId": 1,
+      "name": "생활비",
+      "balance": 250000,
+      "type": "EXPENSE",
+      "capacity": 500000,
+      "targetAmount": 500000,
+      "status": "ACTIVE",
+      "statusLabel": "사용 중"
+    },
+    {
+      "blockId": 2,
+      "name": "여행",
+      "balance": 100000,
+      "status": "ACTIVE"
+    }
+  ],
+  "waitingFunds": [
+    {
+      "waitingFundId": 7,
+      "amount": 10000,
+      "label": "미배분 급여"
+    }
+  ]
+}

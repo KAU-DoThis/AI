@@ -8,10 +8,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Awaitable, Callable
-from app.agent.chat_session import ChatJob, UserSession
+from uuid import uuid4
+from app.agent.chat_session import ChatExecution, ChatJob, UserSession
 from app.modules.agent.contracts import Agent, AgentError, AgentInput, AgentResult
 from app.modules.agent.tools import ToolContext, ToolExecutor, ToolRegistry
-from app.schemas.coach_chat import CoachChatRequest, CoachChatResponse
+from app.schemas.coach_chat import CoachChatRequest
 
 log = logging.getLogger(__name__)
 
@@ -39,11 +40,13 @@ class ManagerLimits:
 class AgentManager:
     def __init__(self, agent_factory: Callable[[], Agent] | None = None,
                  tools: ToolRegistry | None = None, limits: ManagerLimits | None = None,
-                 on_idle: Callable[[dict[str, Any]], Awaitable[None]] | None = None):
+                 on_idle: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+                 result_processor: Callable[[ChatExecution], ChatExecution] | None = None):
         self._factory = agent_factory
         self._tools = tools if tools is not None else ToolRegistry([])
         self._limits = limits or ManagerLimits()
         self._on_idle = on_idle
+        self._result_processor = result_processor
         self._agents: dict[int, UserSession] = {}
         self._lock = asyncio.Lock()
         self._closing = False
@@ -70,7 +73,7 @@ class AgentManager:
         self._agents[user_id] = user
         return user, True
 
-    async def chat(self, request: CoachChatRequest) -> CoachChatResponse:
+    async def chat(self, request: CoachChatRequest) -> ChatExecution:
         if self._factory is None:
             raise ChatError("NOT_CONFIGURED")
         request = request.model_copy(deep=True)
@@ -79,7 +82,7 @@ class AgentManager:
         async with self._lock:
             user, _ = self._get_or_create(request.user_id)
             user.last_activity = time.monotonic()
-            previous = user.receipts.get(request.request_id)
+            previous = user.receipts.get(request.request_id) if request.request_id is not None else None
             if previous is not None:
                 if previous.fingerprint != fingerprint:
                     raise ChatError("REQUEST_ID_CONFLICT")
@@ -93,16 +96,18 @@ class AgentManager:
                 future = asyncio.get_running_loop().create_future()
                 # Consume exceptions even when the HTTP caller disconnects.
                 future.add_done_callback(lambda f: None if f.cancelled() else f.exception())
-                job = ChatJob(request, fingerprint, future)
+                job = ChatJob(request, fingerprint, future, request.request_id or uuid4().hex)
                 user.rooms.setdefault(request.session_id, [])
-                user.receipts[request.request_id] = job
+                if request.request_id is not None:
+                    user.receipts[request.request_id] = job
                 user.queue.put_nowait(job)
                 self._prune_receipts(user)
                 if user.worker is None or user.worker.done():
                     user.worker = asyncio.create_task(self._worker(user), name="fintris-user-worker")
         # Cancellation of an HTTP wait does not cancel accepted work.
-        # Retry the SAME requestId and body to retrieve that work's result.
-        return (await asyncio.shield(future)).model_copy(deep=True)
+        # Only a caller-supplied SAME requestId/body can retrieve accepted work.
+        # Without requestId, every call is new work (generated IDs are tracing only).
+        return deepcopy(await asyncio.shield(future))
 
     def _prune_receipts(self, user: UserSession) -> None:
         for key in list(user.receipts):
@@ -122,17 +127,26 @@ class AgentManager:
                 turns = user.rooms[job.request.session_id]
                 history = [deepcopy(message) for turn in turns for message in turn]
                 tool_context = ToolContext(user.user_id, job.request.session_id,
-                                           job.request.request_id, job.request.snapshot())
+                                           job.execution_id, job.request.snapshot())
+                # A fresh executor per turn: no proposal can leak from another turn.
+                executor = ToolExecutor(self._tools, tool_context)
                 async with asyncio.timeout(self._limits.turn_timeout_seconds):
-                    result = await user.engine.run(
-                        AgentInput(job.request.message, history), ToolExecutor(self._tools, tool_context))
-                if not isinstance(result, AgentResult) or not result.message.strip():
+                    result = await user.engine.run(AgentInput(job.request.text, history), executor)
+                if (not isinstance(result, AgentResult) or not isinstance(result.message, str)
+                        or not result.message.strip() or not isinstance(result.messages, list)):
                     raise AgentError("INVALID_RESPONSE")
-                response = CoachChatResponse(request_id=job.request.request_id, user_id=user.user_id,
-                                             session_id=job.request.session_id, agent_id=user.agent_id,
-                                             message=result.message, tools_used=result.tools_used)
+                response = ChatExecution(
+                    request_id=job.execution_id, user_id=user.user_id,
+                    session_id=job.request.session_id, agent_id=user.agent_id,
+                    result=result, tool_executions=executor.executions(),
+                )
+                # Application-owned postprocessing, without importing financial logic.
+                if self._result_processor is not None:
+                    response = self._result_processor(response)
+                    if not isinstance(response, ChatExecution):
+                        raise AgentError("INVALID_RESPONSE")
                 # Only commit successful COMPLETE turns; never split tool sequences.
-                turns.append(deepcopy(result.messages))
+                turns.append(deepcopy(response.result.messages))
                 while len(turns) > self._limits.max_history_turns or (
                     turns and len(json.dumps(turns, ensure_ascii=False)) > self._limits.max_history_chars
                 ):

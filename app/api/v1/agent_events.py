@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.agent.manager import AgentManager
+from app.agent.chat_manager import AgentManager
 from app.core.internal_auth import require_internal_token
 from app.models.agent_event import AgentEvent, EventReceipt
 from app.models.agent_status import AgentStatus
