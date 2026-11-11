@@ -1,5 +1,7 @@
 # Fintris 초기 블록 요청 수신 API — 통합 가이드
 
+> 이 문서는 초기 블록 **수신 확인 API**의 과거 통합 안내입니다. 현재 프로젝트 설치·실행은 [README](../README.md), 새 방 입장 API는 [COACH_ROOM_API.md](COACH_ROOM_API.md)를 참고하세요. 아래 ZIP 패치 설명은 당시 배포 방식에 대한 기록입니다.
+
 ## 이번 구현 범위
 
 **Spring → FastAPI로 사용자/거래 데이터를 전송하고, 인증 + 입력 검증 후 HTTP 200 수신 확인 응답까지.**

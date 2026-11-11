@@ -1,1 +1,1 @@
-"""기능별 서비스 로직. 입구(api)는 얇게 두고 여기서 모듈을 부른다."""
+"""Application services combining reusable modules with Fintris behavior."""
