@@ -1,0 +1,11 @@
+{
+  "userId": 123,
+  "sessionId": "room-123",
+  "requestId": "chat-0001",
+  "message": "생활비 블록에 얼마 남았어?",
+  "blocks": [
+    {"blockId": 1, "name": "생활비", "balance": 250000},
+    {"blockId": 2, "name": "여행", "balance": 100000}
+  ],
+  "waitingFunds": []
+}
