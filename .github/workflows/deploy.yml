@@ -1,0 +1,109 @@
+# main에 머지되면 AI 서버(agent)를 개발 서버(EC2)에 자동 배포한다.
+# Actions 탭 → "Deploy agent to EC2" → "Run workflow" 버튼으로 손으로도 실행할 수 있다 (main만).
+#
+# 흐름: 이미지 빌드 → ECR(fintris-agent)에 올리기 → SSM으로 EC2에서 deploy/agent-deploy.sh 실행
+# 서버의 agent는 BE 레포 docker-compose.yml 안의 agent 서비스다. 이 배포는 agent만 교체하고
+# main·mysql·caddy는 건드리지 않는다. AWS 접속은 OIDC(임시 자격증명)로, 레포에 AWS 키를 두지 않는다.
+#
+# 필요한 레포 Variables (Settings → Secrets and variables → Actions → Variables) — BE 레포와 같은 값
+#   AWS_ROLE_ARN     : GitHub Actions가 쓸 IAM 역할 ARN
+#   EC2_INSTANCE_ID  : 배포할 EC2 인스턴스 ID (fintris-dev)
+
+name: Deploy agent to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-agent
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # OIDC 토큰 발급
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: fintris-agent
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 코드 받기
+        uses: actions/checkout@v4
+
+      - name: AWS 로그인 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 서버가 켜져 있는지 확인
+        run: |
+          state=$(aws ec2 describe-instances --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --query 'Reservations[0].Instances[0].State.Name' --output text)
+          echo "EC2 상태: $state"
+          if [ "$state" != "running" ]; then
+            echo "::error::fintris-dev 서버가 꺼져 있습니다($state). 서버를 켠 뒤 Actions에서 'Re-run jobs'를 눌러 주세요."
+            exit 1
+          fi
+
+      - name: ECR 로그인
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 이미지 빌드 후 ECR에 올리기
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+        run: |
+          # ECR 태그는 덮어쓸 수 없으므로, 같은 커밋 이미지가 이미 있으면 다시 만들지 않는다.
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+               --image-ids imageTag="${{ github.sha }}" > /dev/null 2>&1; then
+            echo "이미 올라간 이미지라 빌드를 건너뜁니다: $IMAGE"
+          else
+            docker build --platform linux/amd64 -t "$IMAGE" .
+            docker push "$IMAGE"
+          fi
+
+      - name: EC2에 배포 (SSM Run Command)
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          RAW: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/deploy/agent-deploy.sh
+          TAG: ${{ github.sha }}
+        run: |
+          # SSM은 /bin/sh(dash)로 실행하므로 스크립트는 bash로 따로 돌린다
+          jq -n --arg raw "$RAW" --arg tag "$TAG" '{commands: [
+            "set -eu",
+            "curl -fsSL \($raw) -o /tmp/agent-deploy.sh",
+            "bash /tmp/agent-deploy.sh \($tag)"
+          ]}' > params.json
+
+          command_id=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "agent ${TAG:0:7}" \
+            --parameters file://params.json \
+            --query Command.CommandId --output text)
+          echo "SSM 명령 ID: $command_id"
+
+          status=Pending
+          for _ in $(seq 1 60); do
+            sleep 5
+            status=$(aws ssm get-command-invocation --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in Pending|InProgress|Delayed) continue ;; *) break ;; esac
+          done
+
+          echo "----- 서버 출력 -----"
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text || true
+
+          if [ "$status" != "Success" ]; then
+            echo "::error::agent 배포 실패 (상태: $status). 위 서버 출력을 확인하세요."
+            exit 1
+          fi
+          echo "agent 배포 성공: ${TAG:0:7}"
